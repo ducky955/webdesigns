@@ -1,0 +1,11 @@
+.pio/
+.pioenvs/
+.piolibdeps/
+.vscode/
+build/
+*.bin
+*.elf
+
+# Your private credentials live here - never committed.
+src/secrets.h
+test/test_host
