@@ -4,6 +4,7 @@
 #include "config.h"
 #include "mlog.h"
 #include <string.h>
+#include <atomic>
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -19,9 +20,13 @@ static QueueHandle_t     s_shareQueue = nullptr;
 static StratumJob s_job;                 // guarded by s_jobMutex
 static uint8_t    s_target[32];          // pool share target, guarded too
 static double     s_poolDiff = 1.0;
-static volatile uint32_t s_jobVersion = 0;   // bumped on every job change
+// Relaxed atomics, not volatile: a 32-bit load on the ESP32 is atomic
+// either way, but this is what the language actually guarantees and it
+// costs nothing on Xtensa. The mutex above still orders the job payload;
+// these only need the counter itself to be seen whole.
+static std::atomic<uint32_t> s_jobVersion{0};   // bumped on every job change
 
-static volatile uint32_t s_hashCounter[4];   // per-task, free-running
+static std::atomic<uint32_t> s_hashCounter[4];  // per-task, free-running
 static uint32_t s_lastCounter[4];
 static uint8_t  s_taskCount = 0;
 
@@ -32,12 +37,12 @@ static uint32_t s_lastTickMs = 0;
 // Guards the counters below, which two hashing tasks can touch at once.
 static portMUX_TYPE s_statsMux = portMUX_INITIALIZER_UNLOCKED;
 
-static volatile uint32_t s_sharesFound = 0;
-static volatile uint32_t s_blocksFound = 0;
-static uint32_t s_sharesAccepted = 0;
-static uint32_t s_sharesRejected = 0;
-static uint32_t s_jobsReceived = 0;
-static double   s_bestDifficulty = 0.0;
+static std::atomic<uint32_t> s_sharesFound{0};
+static std::atomic<uint32_t> s_blocksFound{0};
+static std::atomic<uint32_t> s_sharesAccepted{0};
+static std::atomic<uint32_t> s_sharesRejected{0};
+static std::atomic<uint32_t> s_jobsReceived{0};
+static double s_bestDifficulty = 0.0;   // guarded by s_statsMux (not 32-bit)
 
 static inline void put_le32(uint8_t *p, uint32_t v) {
     p[0] = (uint8_t)(v);
@@ -72,11 +77,11 @@ static void minerTask(void *arg) {
 
     for (;;) {
         // ---- pick up the current job -------------------------------
-        if (s_jobVersion != localVersion) {
+        if (s_jobVersion.load(std::memory_order_relaxed) != localVersion) {
             xSemaphoreTake(s_jobMutex, portMAX_DELAY);
             memcpy(job, &s_job, sizeof(StratumJob));
             memcpy(target, s_target, 32);
-            localVersion = s_jobVersion;
+            localVersion = s_jobVersion.load(std::memory_order_relaxed);
             xSemaphoreGive(s_jobMutex);
             bits_to_target(job->nbits, networkTarget);
             // The cheap pre-check below only holds while the target has two
@@ -169,10 +174,10 @@ static void minerTask(void *arg) {
                 share.difficulty = hash_difficulty(hash);
                 share.isBlock = hash_meets_target(hash, networkTarget);
 
+                s_sharesFound.fetch_add(1, std::memory_order_relaxed);
+                if (share.isBlock) s_blocksFound.fetch_add(1, std::memory_order_relaxed);
                 taskENTER_CRITICAL(&s_statsMux);
-                s_sharesFound++;
                 if (share.difficulty > s_bestDifficulty) s_bestDifficulty = share.difficulty;
-                if (share.isBlock) s_blocksFound++;
                 taskEXIT_CRITICAL(&s_statsMux);
 
                 if (share.isBlock)
@@ -181,11 +186,12 @@ static void minerTask(void *arg) {
             }
 
             if ((nonce & 0x3FFF) == 0x3FFF) {
-                s_hashCounter[id] += hashes;
+                s_hashCounter[id].fetch_add(hashes, std::memory_order_relaxed);
                 hashes = 0;
                 // Let the idle task run so the watchdog stays happy.
                 vTaskDelay(1);
-                if (s_jobVersion != localVersion) break;   // new job, restart
+                if (s_jobVersion.load(std::memory_order_relaxed) != localVersion)
+                    break;                                 // new job, restart
             }
             if (nonce == 0xFFFFFFFFu) break;               // roll extranonce2
         }
@@ -229,8 +235,8 @@ void miner_set_job(const StratumJob &job) {
         strncpy(s_job.extranonce1, e1, sizeof(s_job.extranonce1));
         s_job.extranonce2Size = e2;
     }
-    s_jobsReceived++;
-    s_jobVersion++;
+    s_jobsReceived.fetch_add(1, std::memory_order_relaxed);
+    s_jobVersion.fetch_add(1, std::memory_order_relaxed);
     xSemaphoreGive(s_jobMutex);
 }
 
@@ -239,7 +245,7 @@ void miner_set_difficulty(double difficulty) {
     xSemaphoreTake(s_jobMutex, portMAX_DELAY);
     s_poolDiff = difficulty;
     diff_to_target(difficulty, s_target);
-    s_jobVersion++;
+    s_jobVersion.fetch_add(1, std::memory_order_relaxed);
     xSemaphoreGive(s_jobMutex);
     MLOG("pool difficulty set to %.6f", difficulty);
 }
@@ -249,14 +255,14 @@ void miner_set_extranonce(const char *extranonce1, uint8_t extranonce2Size) {
     strncpy(s_job.extranonce1, extranonce1, sizeof(s_job.extranonce1) - 1);
     s_job.extranonce1[sizeof(s_job.extranonce1) - 1] = '\0';
     s_job.extranonce2Size = extranonce2Size;
-    s_jobVersion++;
+    s_jobVersion.fetch_add(1, std::memory_order_relaxed);
     xSemaphoreGive(s_jobMutex);
 }
 
 void miner_clear_job() {
     xSemaphoreTake(s_jobMutex, portMAX_DELAY);
     s_job.valid = false;
-    s_jobVersion++;
+    s_jobVersion.fetch_add(1, std::memory_order_relaxed);
     xSemaphoreGive(s_jobMutex);
 }
 
@@ -266,8 +272,8 @@ bool miner_pop_share(FoundShare &out) {
 }
 
 void miner_report_share(bool accepted) {
-    if (accepted) s_sharesAccepted++;
-    else          s_sharesRejected++;
+    if (accepted) s_sharesAccepted.fetch_add(1, std::memory_order_relaxed);
+    else          s_sharesRejected.fetch_add(1, std::memory_order_relaxed);
 }
 
 void miner_tick() {
@@ -278,7 +284,7 @@ void miner_tick() {
 
     uint32_t delta = 0;
     for (uint8_t i = 0; i < s_taskCount; i++) {
-        uint32_t c = s_hashCounter[i];
+        uint32_t c = s_hashCounter[i].load(std::memory_order_relaxed);
         delta += c - s_lastCounter[i];     // unsigned math handles wrap-around
         s_lastCounter[i] = c;
     }
@@ -291,12 +297,14 @@ void miner_tick() {
 MinerStats miner_get_stats() {
     MinerStats st;
     st.totalHashes    = s_totalHashes;
-    st.sharesFound    = s_sharesFound;
-    st.sharesAccepted = s_sharesAccepted;
-    st.sharesRejected = s_sharesRejected;
-    st.blocksFound    = s_blocksFound;
-    st.jobsReceived   = s_jobsReceived;
+    st.sharesFound    = s_sharesFound.load(std::memory_order_relaxed);
+    st.sharesAccepted = s_sharesAccepted.load(std::memory_order_relaxed);
+    st.sharesRejected = s_sharesRejected.load(std::memory_order_relaxed);
+    st.blocksFound    = s_blocksFound.load(std::memory_order_relaxed);
+    st.jobsReceived   = s_jobsReceived.load(std::memory_order_relaxed);
+    taskENTER_CRITICAL(&s_statsMux);
     st.bestDifficulty = s_bestDifficulty;
+    taskEXIT_CRITICAL(&s_statsMux);
     st.hashrate       = s_hashrate;
     st.poolDifficulty = s_poolDiff;
     return st;

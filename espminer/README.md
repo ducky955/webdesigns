@@ -245,17 +245,63 @@ produces a valid share — which is why there are tests.
 
 ## Tests
 
-The math is verified on your PC, no hardware needed:
+Both suites run on your PC, no hardware needed.
+
+### Unit tests — the mining math
 
 ```bash
 cd test && make run
 ```
 
-It checks SHA-256 against the standard vectors, rebuilds **real block
-125552** from its stratum-style fields and confirms the known hash (both via
-the plain path and the midstate fast path), checks `nBits` and difficulty
-targets — including fractional difficulties like 0.001 — and runs a full
+Checks SHA-256 against the standard vectors, rebuilds **real block 125552**
+from its stratum-style fields and confirms the known hash (both via the
+plain path and the midstate fast path), checks `nBits` and difficulty
+targets — including fractional ones like 0.001 — and runs a full
 coinbase → merkle → header pipeline against a reference implementation.
+
+### Simulation — the firmware against a fake pool
+
+```bash
+cd test/sim && make run
+```
+
+This compiles the **real `miner.cpp` and `stratum.cpp`** for your PC — tasks
+become threads, `WiFiClient` talks to an in-process pool — and runs a
+complete session: subscribe, authorize, `set_difficulty`, `notify`, mine,
+submit, accept. Then a second job to prove job switching, then the error
+paths: a non-JSON line from the pool, a truncated `mining.notify`, a
+mid-session difficulty change, and a share the pool refuses.
+
+Every share it submits is written to `sim_result.json`, and `verify_sim.py`
+rebuilds each one from scratch with Python's `hashlib` — coinbase, merkle
+root, header, double SHA-256 — and checks it really beats the target:
+
+```
+  1. job sim-job-1  nonce 00020de0  extranonce2 00000000
+     hash 00001f5b2d2cd0c90a6cff41b81a5ddb67270eb83c2671125ffd9d082753bba9
+     difficulty 0.0001  -> VALID
+
+PASSED: all 4 submissions are cryptographically valid shares
+```
+
+That check shares no code with the firmware, so agreement means the byte
+order and merkle folding are actually right rather than merely
+self-consistent. The difficulty is set low so a PC finds shares in under a
+second.
+
+The simulation is also clean under sanitizers, which is worth doing after
+any change to the threading:
+
+```bash
+cd test/sim
+g++ -std=gnu++17 -O1 -g -fsanitize=address,undefined -I. -I../../src \
+    -o sim_asan sim_main.cpp sim_support.cpp ../../src/*.cpp -pthread   # then ./sim_asan
+g++ -std=gnu++17 -O1 -g -fsanitize=thread -I. -I../../src \
+    -o sim_tsan sim_main.cpp sim_support.cpp ../../src/*.cpp -pthread   # then ./sim_tsan
+```
+
+**What this does not cover:** stack sizes, the task watchdog, real Wi-Fi,
+NVS, the web UI, the OLED, and actual hash rate. Those need the hardware.
 
 ## Troubleshooting
 

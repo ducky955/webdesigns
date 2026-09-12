@@ -229,7 +229,7 @@ void StratumClient::handleLine(char *line) {
 
         miner_report_share(ok);
         if (ok) {
-            MLOG("share ACCEPTED  (difficulty %.3f)", d);
+            MLOG("share ACCEPTED  (difficulty %g)", d);
         } else {
             const char *why = doc["error"][1] | "unknown reason";
             MLOG("share rejected: %s", why);
@@ -294,7 +294,8 @@ void StratumClient::handleNotify(JsonArrayConst params) {
     job.ntime   = strtoul(params[7] | "0", nullptr, 16);
     bool clean  = params[8] | false;
 
-    strncpy(job.extranonce1, _extranonce1, sizeof(job.extranonce1) - 1);
+    memcpy(job.extranonce1, _extranonce1, sizeof(job.extranonce1));
+    job.extranonce1[sizeof(job.extranonce1) - 1] = '\0';
     job.extranonce2Size = _extranonce2Size;
     job.valid = true;
 
@@ -330,7 +331,7 @@ void StratumClient::submitPendingShares() {
             MLOG("share dropped: send failed");
             continue;
         }
-        MLOG("submitted share: job=%s nonce=%s diff=%.3f%s", share.jobId, nonceHex,
+        MLOG("submitted share: job=%s nonce=%s diff=%g%s", share.jobId, nonceHex,
              share.difficulty, share.isBlock ? "  <-- BLOCK!" : "");
 
         if (_pendingCount < MAX_PENDING) {

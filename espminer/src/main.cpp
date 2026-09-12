@@ -101,7 +101,7 @@ static void printStats() {
     const char *unit = "H/s";
     if (rate >= 1000.0) { rate /= 1000.0; unit = "kH/s"; }
 
-    MLOG("%s | %.2f %s | shares %lu ok / %lu bad | best diff %.3f | pool diff %.4f | heap %u",
+    MLOG("%s | %.2f %s | shares %lu ok / %lu bad | best diff %g | pool diff %g | heap %u",
          stratum.stateName(), rate, unit,
          (unsigned long)st.sharesAccepted, (unsigned long)st.sharesRejected,
          st.bestDifficulty, st.poolDifficulty, (unsigned)ESP.getFreeHeap());
