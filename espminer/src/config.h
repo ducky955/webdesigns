@@ -107,9 +107,26 @@
 // Serial console speed.
 #define SERIAL_BAUD          115200
 
-// OLED pins, only used when built with -DUSE_OLED=1
-#define OLED_SDA             21
-#define OLED_SCL             22
-#define OLED_ADDRESS         0x3C
+// OLED pins, only used when built with -DUSE_OLED=1. Any two free GPIOs
+// work - I2C is not tied to specific pins on the ESP32. See the wiring
+// table in README.md. Override from platformio.ini with -DOLED_SDA=...
+#ifndef OLED_SDA
+#  if defined(CONFIG_IDF_TARGET_ESP32S3) || defined(CONFIG_IDF_TARGET_ESP32S2)
+#    define OLED_SDA         8
+#  else
+#    define OLED_SDA         21
+#  endif
+#endif
+#ifndef OLED_SCL
+#  if defined(CONFIG_IDF_TARGET_ESP32S3) || defined(CONFIG_IDF_TARGET_ESP32S2)
+#    define OLED_SCL         9
+#  else
+#    define OLED_SCL         22
+#  endif
+#endif
+// 0x3C for almost every module; a few are strapped to 0x3D.
+#ifndef OLED_ADDRESS
+#  define OLED_ADDRESS       0x3C
+#endif
 
 #define FIRMWARE_VERSION     "1.0.0"

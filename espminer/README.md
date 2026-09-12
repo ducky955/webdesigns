@@ -37,7 +37,7 @@ Budget your expectations accordingly, and enjoy the blinkenlights.
 - A Bitcoin address **you hold the private keys to**. Not an exchange deposit
   address you found in an email; if a block lands there you want to be able
   to spend it.
-- Optionally a 128x64 SSD1306 OLED on I2C.
+- Optionally a 128x64 SSD1306 OLED on I2C — see [Adding an OLED](#adding-an-oled-optional).
 
 ## Quick start
 
@@ -103,6 +103,96 @@ The serial console prints the IP address it got. Open it — or
 If the configured Wi-Fi can't be joined, the miner starts its own network
 called **ESPMiner-Setup** (password `bitcoin123`). Join it from a phone,
 open any page, and you land on the same settings form.
+
+## Adding an OLED (optional)
+
+A 0.96" 128x64 SSD1306 on I2C — the four-pin kind (GND, VCC, SCL, SDA). The
+seven-pin SPI version of the same panel is a different beast and is not
+wired up here.
+
+### Wiring
+
+```
+   ESP32 dev board                    SSD1306 128x64 (I2C)
+   +----------------+                 +--------------------+
+   |           3V3  o-----------------o VCC                |
+   |           GND  o-----------------o GND                |
+   |         GPIO21 o-----------------o SDA                |
+   |         GPIO22 o-----------------o SCL                |
+   +----------------+                 +--------------------+
+```
+
+| OLED pin | ESP32 | ESP32-S3 / S2 | Notes |
+|---|---|---|---|
+| `VCC` | `3V3` | `3V3` | most modules take 3.3-5 V; 3V3 is the safe choice |
+| `GND` | `GND` | `GND` | |
+| `SDA` | `GPIO21` | `GPIO8` | data |
+| `SCL` | `GPIO22` | `GPIO9` | clock |
+
+Four things worth knowing:
+
+- **Check the silkscreen before you plug anything in.** These modules ship
+  with the pins in at least two different orders — `GND VCC SCL SDA` and
+  `VCC GND SCL SDA` are both common. Going by position rather than by label
+  is how people put 3V3 into GND.
+- **No pull-up resistors needed.** The module has them, and the ESP32
+  enables its internal ones.
+- **Any two free GPIOs work.** I2C on the ESP32 is not tied to particular
+  pins. 21/22 are just the traditional default. Avoid the strapping pins
+  (0, 2, 12, 15) and the input-only pins (34-39, which cannot drive SDA).
+- **Swapping SDA and SCL is harmless**, just non-functional. Try the other
+  way round if nothing appears.
+
+### Build
+
+```bash
+pio run -e esp32dev-oled -t upload      # ESP32
+pio run -e esp32-s3-oled -t upload      # ESP32-S3
+```
+
+For different pins, either edit `OLED_SDA` / `OLED_SCL` in `src/config.h` or
+pass them in `platformio.ini`:
+
+```ini
+build_flags = ${common.build_flags} -DUSE_OLED=1 -DOLED_SDA=18 -DOLED_SCL=19
+```
+
+Arduino IDE users: add `#define USE_OLED 1` at the top of `config.h`, and
+install the **Adafruit SSD1306** and **Adafruit GFX** libraries.
+
+### What it shows
+
+```
+   +--------------------------+
+   | ESPMiner  mining         |
+   |                          |
+   |  41.83 kH/s              |
+   |                          |
+   | shares 12/12             |
+   | best   0.482             |
+   | up     6h23m             |
+   | 192.168.1.47             |
+   +--------------------------+
+```
+
+Refreshed every two seconds.
+
+### If the screen stays blank
+
+The firmware tells you what happened — check the serial console at boot:
+
+- `oled: ready on SDA=21 SCL=22` — the display is alive; if it is still
+  blank, that is a contrast/panel problem, not wiring.
+- `oled: found at 0x3D, not 0x3C` — your module uses the other I2C address.
+  It carries on working; set `OLED_ADDRESS` in `config.h` to silence it.
+- `oled: something answered at 0x..` — a device is on the bus but it is not
+  an SSD1306 at the address we tried. Usually an SH1106 panel, which needs a
+  different driver library.
+- `oled: nothing on the bus` — power or wiring. Check VCC and GND first,
+  then try swapping SDA and SCL.
+
+The miner does not care either way: if there is no display it logs the
+problem once and keeps hashing.
 
 ## Pools
 

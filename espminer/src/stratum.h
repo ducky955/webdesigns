@@ -33,6 +33,7 @@ private:
     void handleLine(char *line);
     void handleNotify(JsonArrayConst params);
     bool sendLine(const String &json);
+    void setState(StratumState next);
     void submitPendingShares();
 
     WiFiClient _client;
@@ -45,6 +46,7 @@ private:
     uint32_t     _lastConnectAttempt = 0;
     uint32_t     _lastJobMs = 0;
     uint32_t     _lastRxMs = 0;
+    uint32_t     _stateSince = 0;
     uint32_t     _backoffMs = 2000;
 
     char   _rx[5120];

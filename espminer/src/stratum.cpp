@@ -13,7 +13,7 @@ void StratumClient::begin(const String &host, uint16_t port, const String &user,
     _user = user;
     _pass = pass;
     _suggestDifficulty = suggestDifficulty;
-    _state = STRATUM_DISCONNECTED;
+    setState(STRATUM_DISCONNECTED);
     _lastConnectAttempt = 0;
     _backoffMs = 2000;
 }
@@ -35,10 +35,15 @@ uint32_t StratumClient::lastJobAgeSeconds() const {
 
 void StratumClient::disconnect() {
     if (_client.connected()) _client.stop();
-    _state = STRATUM_DISCONNECTED;
+    setState(STRATUM_DISCONNECTED);
     _rxLen = 0;
     _pendingCount = 0;
     miner_clear_job();
+}
+
+void StratumClient::setState(StratumState next) {
+    _state = next;
+    _stateSince = millis();
 }
 
 bool StratumClient::sendLine(const String &json) {
@@ -67,7 +72,7 @@ bool StratumClient::connectToPool() {
     msg += "\"]}";
     if (!sendLine(msg)) return false;
 
-    _state = STRATUM_SUBSCRIBING;
+    setState(STRATUM_SUBSCRIBING);
     _lastRxMs = millis();
     return true;
 }
@@ -118,9 +123,12 @@ void StratumClient::loop() {
         MLOG("stratum: no data for 5 minutes, reconnecting");
         disconnect();
     }
+    // Note this times the handshake itself, not the last byte received:
+    // a pool can happily stream jobs at us while never answering
+    // mining.authorize, and shares found in that state are unsubmittable.
     if (_state != STRATUM_MINING && _state != STRATUM_DISCONNECTED &&
-        millis() - _lastRxMs > 20000UL) {
-        MLOG("stratum: handshake timed out, reconnecting");
+        millis() - _stateSince > 20000UL) {
+        MLOG("stratum: handshake stuck in '%s', reconnecting", stateName());
         disconnect();
     }
 }
@@ -145,7 +153,9 @@ void StratumClient::handleLine(char *line) {
         } else if (!strcmp(method, "mining.set_extranonce")) {
             if (params.size() >= 2) {
                 strncpy(_extranonce1, params[0] | "", sizeof(_extranonce1) - 1);
+                _extranonce1[sizeof(_extranonce1) - 1] = '\0';
                 _extranonce2Size = params[1].as<uint8_t>();
+                if (_extranonce2Size == 0 || _extranonce2Size > 16) _extranonce2Size = 4;
                 miner_set_extranonce(_extranonce1, _extranonce2Size);
                 MLOG("stratum: new extranonce1=%s size=%u", _extranonce1, _extranonce2Size);
             }
@@ -169,6 +179,7 @@ void StratumClient::handleLine(char *line) {
             return;
         }
         strncpy(_extranonce1, result[1] | "", sizeof(_extranonce1) - 1);
+        _extranonce1[sizeof(_extranonce1) - 1] = '\0';
         _extranonce2Size = result[2].as<uint8_t>();
         if (_extranonce2Size == 0 || _extranonce2Size > 16) _extranonce2Size = 4;
         miner_set_extranonce(_extranonce1, _extranonce2Size);
@@ -178,7 +189,7 @@ void StratumClient::handleLine(char *line) {
         String msg = "{\"id\":2,\"method\":\"mining.authorize\",\"params\":[\"";
         msg += _user + "\",\"" + _pass + "\"]}";
         sendLine(msg);
-        _state = STRATUM_AUTHORIZING;
+        setState(STRATUM_AUTHORIZING);
 
         if (_suggestDifficulty > 0) {
             String sd = "{\"id\":3,\"method\":\"mining.suggest_difficulty\",\"params\":[";
@@ -199,7 +210,7 @@ void StratumClient::handleLine(char *line) {
             return;
         }
         MLOG("stratum: authorized as %s", _user.c_str());
-        _state = STRATUM_MINING;
+        setState(STRATUM_MINING);
         return;
     }
 

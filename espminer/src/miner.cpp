@@ -29,6 +29,9 @@ static uint64_t s_totalHashes = 0;
 static double   s_hashrate = 0.0;
 static uint32_t s_lastTickMs = 0;
 
+// Guards the counters below, which two hashing tasks can touch at once.
+static portMUX_TYPE s_statsMux = portMUX_INITIALIZER_UNLOCKED;
+
 static volatile uint32_t s_sharesFound = 0;
 static volatile uint32_t s_blocksFound = 0;
 static uint32_t s_sharesAccepted = 0;
@@ -166,12 +169,14 @@ static void minerTask(void *arg) {
                 share.difficulty = hash_difficulty(hash);
                 share.isBlock = hash_meets_target(hash, networkTarget);
 
+                taskENTER_CRITICAL(&s_statsMux);
                 s_sharesFound++;
-                miner_note_difficulty(share.difficulty);
-                if (share.isBlock) {
-                    s_blocksFound++;
+                if (share.difficulty > s_bestDifficulty) s_bestDifficulty = share.difficulty;
+                if (share.isBlock) s_blocksFound++;
+                taskEXIT_CRITICAL(&s_statsMux);
+
+                if (share.isBlock)
                     MLOG("*** BLOCK CANDIDATE FOUND *** job=%s nonce=%08x", share.jobId, nonce);
-                }
                 if (s_shareQueue) xQueueSend(s_shareQueue, &share, 0);
             }
 
@@ -297,7 +302,8 @@ MinerStats miner_get_stats() {
     return st;
 }
 
-// Called by the stratum client when it learns a share's real difficulty.
 void miner_note_difficulty(double d) {
+    taskENTER_CRITICAL(&s_statsMux);
     if (d > s_bestDifficulty) s_bestDifficulty = d;
+    taskEXIT_CRITICAL(&s_statsMux);
 }

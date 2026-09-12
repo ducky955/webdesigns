@@ -28,7 +28,9 @@
 static DNSServer dnsServer;
 static bool      s_apMode = false;
 static uint32_t  s_lastStats = 0;
+static uint32_t  s_lastDisplay = 0;
 static uint32_t  s_lastWifiCheck = 0;
+static bool      s_wifiWasUp = true;
 
 // ---------------------------------------------------------------------
 static void banner() {
@@ -151,11 +153,17 @@ void loop() {
         // Wi-Fi dropped? Let the ESP32 reconnect, and park the miner meanwhile.
         if (millis() - s_lastWifiCheck > 5000) {
             s_lastWifiCheck = millis();
-            if (WiFi.status() != WL_CONNECTED) {
-                MLOG("wifi: link lost, reconnecting");
-                stratum.disconnect();
+            bool up = (WiFi.status() == WL_CONNECTED);
+            if (!up) {
+                if (s_wifiWasUp) {           // log the transition, not every retry
+                    MLOG("wifi: link lost, reconnecting");
+                    stratum.disconnect();
+                }
                 WiFi.reconnect();
+            } else if (!s_wifiWasUp) {
+                MLOG("wifi: back up, ip %s", WiFi.localIP().toString().c_str());
             }
+            s_wifiWasUp = up;
         }
         if (WiFi.status() == WL_CONNECTED) stratum.loop();
 #if ENABLE_OTA
@@ -178,11 +186,16 @@ void loop() {
     if (st.bestDifficulty > settings_best_difficulty())
         settings_update_best(st.bestDifficulty);
 
+    // The screen is cheap to redraw and nicer when it is live.
+    if (millis() - s_lastDisplay > 2000) {
+        s_lastDisplay = millis();
+        display_update();
+    }
+
 #if STATS_INTERVAL > 0
     if (millis() - s_lastStats > STATS_INTERVAL * 1000UL) {
         s_lastStats = millis();
         printStats();
-        display_update();
     }
 #endif
 
