@@ -28,7 +28,6 @@
 static DNSServer dnsServer;
 static bool      s_apMode = false;
 static uint32_t  s_lastStats = 0;
-static uint32_t  s_lastDisplay = 0;
 static uint32_t  s_lastWifiCheck = 0;
 static bool      s_wifiWasUp = true;
 static bool      s_apUp = false;
@@ -182,6 +181,7 @@ void setup() {
     settings_load();
     banner();
     display_begin();
+    display_set_options(settings().screen);
 #if AP_FORCE_PIN >= 0
     pinMode(AP_FORCE_PIN, INPUT_PULLUP);
 #endif
@@ -260,11 +260,9 @@ void loop() {
     if (st.bestDifficulty > settings_best_difficulty())
         settings_update_best(st.bestDifficulty);
 
-    // The screen is cheap to redraw and nicer when it is live.
-    if (millis() - s_lastDisplay > 2000) {
-        s_lastDisplay = millis();
-        display_update();
-    }
+    // display_update() rate-limits itself: 8 fps while an animation is
+    // running, once a second otherwise.
+    display_update();
 
 #if STATS_INTERVAL > 0
     if (millis() - s_lastStats > STATS_INTERVAL * 1000UL) {

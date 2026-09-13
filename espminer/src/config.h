@@ -140,4 +140,15 @@
 #  define OLED_ADDRESS       0x3C
 #endif
 
+// Starting screen layout and animation. Both are changeable live from the
+// dashboard afterwards, and the choice is remembered in flash.
+//   layouts    full | big | stats | minimal | rotate | off
+//   animations none | pickaxe | spinner | bars | pulse | chain
+#define SCREEN_MODE          "full"
+#define SCREEN_ANIM          "pickaxe"
+// Rotate the panel 180 degrees, for mounting it upside down.
+#define SCREEN_FLIP          0
+// Lower the contrast (easier on the eyes in a dark room).
+#define SCREEN_DIM           0
+
 #define FIRMWARE_VERSION     "1.0.0"

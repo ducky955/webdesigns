@@ -14,3 +14,4 @@ test/sim/sim_asan
 test/sim/sim_tsan
 test/sim/sim_result.json
 test/sim/ArduinoJson.h
+test/screen/screen_test

@@ -4,6 +4,7 @@
 #include "settings.h"
 #include "miner.h"
 #include "stratum.h"
+#include "display.h"
 #include "config.h"
 #include "mlog.h"
 
@@ -65,9 +66,35 @@ static void handleStatus() {
                                                    : WiFi.localIP().toString()) + "\"}";
     j += ",\"uptime\":" + String(millis() / 1000);
     j += ",\"heap\":" + String(ESP.getFreeHeap());
+    ScreenOptions so = display_get_options();
+    j += ",\"screen\":{\"mode\":\"" + String(display_mode_name(so.mode)) +
+         "\",\"anim\":\"" + String(display_anim_name(so.anim)) +
+         "\",\"flip\":" + String(so.flip ? "true" : "false") +
+         ",\"dim\":" + String(so.dim ? "true" : "false") + "}";
     j += ",\"version\":\"" FIRMWARE_VERSION "\"";
     j += "}";
 
+    server.sendHeader("Cache-Control", "no-store");
+    server.send(200, "application/json", j);
+}
+
+// Screen options apply live - changing the animation should not cost a
+// reboot - and are written straight to flash so they survive one.
+static void handleDisplay() {
+    ScreenOptions so = display_get_options();
+    if (server.hasArg("mode")) so.mode = display_mode_from_name(server.arg("mode").c_str());
+    if (server.hasArg("anim")) so.anim = display_anim_from_name(server.arg("anim").c_str());
+    if (server.hasArg("flip")) so.flip = server.arg("flip") == "1";
+    if (server.hasArg("dim"))  so.dim  = server.arg("dim") == "1";
+
+    display_set_options(so);
+    settings().screen = so;
+    settings_save_screen();
+
+    String j = "{\"mode\":\"" + String(display_mode_name(so.mode)) +
+               "\",\"anim\":\"" + String(display_anim_name(so.anim)) +
+               "\",\"flip\":" + String(so.flip ? "true" : "false") +
+               ",\"dim\":" + String(so.dim ? "true" : "false") + "}";
     server.sendHeader("Cache-Control", "no-store");
     server.send(200, "application/json", j);
 }
@@ -148,6 +175,8 @@ static void handleNotFound() {
 void webui_begin() {
     server.on("/", HTTP_GET, handleRoot);
     server.on("/api/status", HTTP_GET, handleStatus);
+    server.on("/api/display", HTTP_POST, handleDisplay);
+    server.on("/api/display", HTTP_GET, handleDisplay);
     server.on("/settings", HTTP_GET, handleSettings);
     server.on("/save", HTTP_POST, handleSave);
     server.on("/reset", HTTP_GET, handleReset);

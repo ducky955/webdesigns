@@ -162,20 +162,45 @@ install the **Adafruit SSD1306** and **Adafruit GFX** libraries.
 
 ### What it shows
 
+Six layouts, switchable **live from the dashboard** - no reboot, no
+reflash - and remembered in flash:
+
 ```
-   +--------------------------+
-   | ESPMiner  mining         |
-   |                          |
-   |  41.83 kH/s              |
-   |                          |
-   | shares 12/12             |
-   | best   0.482             |
-   | up     6h23m             |
-   | 192.168.1.47             |
-   +--------------------------+
+  full                        big                      stats
+  +---------------------+  +---------------------+  +---------------------+
+  |ESPMiner       mining|  |       mining        |  |ESPMiner       mining|
+  |55.10           /\   |  |                     |  |rate 55.10 kH/s      |
+  |     kH/s      /  \  |  |     55.10           |  |shrs 12/14           |
+  |               ####  |  |                     |  |best 1.308           |
+  |sh 12/14      d0.001 |  |      kH/s           |  |diff 0.001           |
+  |best 1.308           |  |                     |  |jobs 47              |
+  |192.168.86.41        |  |     [ anim ]        |  |up   6h34m           |
+  |                     |  |                     |  |192.168.86.41        |
+  +---------------------+  +---------------------+  +---------------------+
 ```
 
-Refreshed every two seconds.
+- **full** - hash rate plus the numbers worth watching (the default)
+- **big** - one huge hash rate, readable across the room
+- **stats** - everything at once, eight dense rows
+- **minimal** - mostly animation
+- **rotate** - cycles full / big / stats every five seconds
+- **off** - blanks the panel
+
+And six animations: **none, pickaxe, spinner, bars, pulse, chain**. Pick
+one from the Screen card on the dashboard; it applies instantly. Animated
+screens redraw at 8 fps, static ones once a second.
+
+Two more toggles there: **flip 180&deg;** for upside-down mounting, and
+**dim** for a dark room.
+
+Starting values live in `config.h` (`SCREEN_MODE`, `SCREEN_ANIM`,
+`SCREEN_FLIP`, `SCREEN_DIM`) but the dashboard overrides them and the
+choice survives a reboot.
+
+Every layout is checked against a virtual 128x64 panel by `test/screen`,
+including with awkward values - megahash rates, six-digit share counts,
+a full-length IP - so nothing runs off the edge or lands on top of
+anything else.
 
 ### If the screen stays blank
 
@@ -258,6 +283,17 @@ from its stratum-style fields and confirms the known hash (both via the
 plain path and the midstate fast path), checks `nBits` and difficulty
 targets — including fractional ones like 0.001 — and runs a full
 coinbase → merkle → header pipeline against a reference implementation.
+
+### Screen layouts — no panel required
+
+```bash
+cd test/screen && make run
+```
+
+Renders every layout and animation frame against a virtual 128x64 panel,
+prints each as ASCII art, and fails if any draw falls outside the panel or
+a graphic lands on top of text. It runs the real `display.cpp`, so the
+layouts it draws are the ones your OLED gets.
 
 ### Simulation — the firmware against a fake pool
 

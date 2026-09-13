@@ -33,6 +33,18 @@ tr:first-child td{border-top:0}
 td:first-child{color:var(--dim);width:40%}
 td:last-child{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;word-break:break-all}
 .row{display:flex;gap:10px;margin-top:16px;flex-wrap:wrap}
+.screen{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:16px}
+.screen h2{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:1.2px;margin:0 0 12px}
+.ctrls{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end}
+.ctrl{display:flex;flex-direction:column;gap:5px}
+.ctrl span{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:1px}
+select{background:#0e1216;color:var(--fg);border:1px solid var(--line);border-radius:8px;
+       padding:8px 10px;font-size:14px;min-width:128px}
+select:focus{outline:2px solid var(--accent);outline-offset:1px}
+.toggle{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--fg);padding-bottom:9px;cursor:pointer}
+.toggle input{width:16px;height:16px;accent-color:var(--accent);cursor:pointer}
+.saved{font-size:12px;color:var(--ok);opacity:0;transition:opacity .3s}
+.saved.show{opacity:1}
 a.btn,button{display:inline-block;background:var(--accent);color:#111;border:0;border-radius:9px;
   padding:10px 18px;font-size:14px;font-weight:600;text-decoration:none;cursor:pointer}
 a.btn.ghost{background:transparent;color:var(--fg);border:1px solid var(--line)}
@@ -59,6 +71,34 @@ footer{color:var(--dim);font-size:12px;margin-top:22px;text-align:center}
   <div class="card"><div class="k">All-time best</div><div class="v" id="bestAll">0</div></div>
   <div class="card"><div class="k">Pool difficulty</div><div class="v" id="pdiff">-</div></div>
   <div class="card"><div class="k">Total hashes</div><div class="v" id="total">0</div></div>
+</div>
+
+<div class="screen">
+  <h2>Screen <span class="saved" id="saved">saved</span></h2>
+  <div class="ctrls">
+    <label class="ctrl"><span>Layout</span>
+      <select id="mode">
+        <option value="full">Full - rate + stats</option>
+        <option value="big">Big - huge hash rate</option>
+        <option value="stats">Stats - everything</option>
+        <option value="minimal">Minimal - mostly animation</option>
+        <option value="rotate">Rotate - cycle every 5s</option>
+        <option value="off">Off - blank the panel</option>
+      </select>
+    </label>
+    <label class="ctrl"><span>Animation</span>
+      <select id="anim">
+        <option value="none">None</option>
+        <option value="pickaxe">Pickaxe</option>
+        <option value="spinner">Spinner</option>
+        <option value="bars">Bars</option>
+        <option value="pulse">Pulse</option>
+        <option value="chain">Chain</option>
+      </select>
+    </label>
+    <label class="toggle"><input type="checkbox" id="flip">Flip 180&deg;</label>
+    <label class="toggle"><input type="checkbox" id="dim">Dim</label>
+  </div>
 </div>
 
 <table>
@@ -91,6 +131,20 @@ function dur(s){
   const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);
   return (d?d+"d ":"")+(h||d?h+"h ":"")+m+"m "+(s%60)+"s";
 }
+let screenTouched=0;
+async function pushScreen(){
+  screenTouched=Date.now();
+  const q=new URLSearchParams({
+    mode:$("mode").value, anim:$("anim").value,
+    flip:$("flip").checked?"1":"0", dim:$("dim").checked?"1":"0"});
+  try{
+    await fetch("/api/display?"+q.toString(),{method:"POST"});
+    $("saved").classList.add("show");
+    setTimeout(()=>$("saved").classList.remove("show"),1200);
+  }catch(e){}
+}
+for(const id of ["mode","anim","flip","dim"]) $(id).onchange=pushScreen;
+
 async function tick(){
   try{
     const r=await fetch("/api/status",{cache:"no-store"});
@@ -114,6 +168,11 @@ async function tick(){
     $("up").textContent=dur(j.uptime);
     $("heap").textContent=big(j.heap)+" bytes";
     $("fw").textContent=j.version;
+    // Don't fight the user while they are changing the controls.
+    if(j.screen && Date.now()-screenTouched>3000){
+      $("mode").value=j.screen.mode; $("anim").value=j.screen.anim;
+      $("flip").checked=j.screen.flip; $("dim").checked=j.screen.dim;
+    }
     if(j.blocks>0)$("blk").style.display="block";
   }catch(e){$("dot").className="dot";$("state").textContent="no link";}
 }

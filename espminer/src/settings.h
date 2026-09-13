@@ -2,6 +2,7 @@
 // the web UI is stored in NVS (flash) and wins on the next boot.
 #pragma once
 #include <Arduino.h>
+#include "display.h"
 
 struct MinerSettings {
     String   wifiSsid;
@@ -12,6 +13,7 @@ struct MinerSettings {
     uint16_t poolPort;
     String   poolPassword;
     double   suggestDifficulty;
+    ScreenOptions screen;
 };
 
 void           settings_load();
@@ -23,5 +25,9 @@ MinerSettings &settings();
 String settings_stratum_user();
 
 // All-time best share difficulty, kept across reboots.
+// Screen options are saved on their own so the dashboard can change them
+// without a reboot.
+void settings_save_screen();
+
 double settings_best_difficulty();
 void   settings_update_best(double difficulty);
