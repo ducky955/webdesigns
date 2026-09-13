@@ -11,7 +11,9 @@
 #include <Adafruit_SSD1306.h>
 
 static Adafruit_SSD1306 oled(128, 64, &Wire, -1);
-static bool s_ready = false;
+static bool   s_ready = false;
+static bool   s_setupMode = false;
+static String s_apSsid, s_apPass, s_apIp;
 
 void display_begin() {
     Wire.begin(OLED_SDA, OLED_SCL);
@@ -63,8 +65,34 @@ void display_message(const String &line1, const String &line2) {
     oled.display();
 }
 
+void display_setup_mode(const String &ssid, const String &password, const String &ip) {
+    s_setupMode = ssid.length() > 0;
+    s_apSsid = ssid;
+    s_apPass = password;
+    s_apIp = ip;
+}
+
 void display_update() {
     if (!s_ready) return;
+
+    if (s_setupMode) {
+        // Mining stats would be meaningless here, and redrawing them was
+        // wiping the one thing the user actually needs to read.
+        oled.clearDisplay();
+        oled.setTextSize(1);
+        oled.setCursor(0, 0);
+        oled.println(F("SETUP MODE"));
+        oled.println(F("join this wi-fi:"));
+        oled.println(s_apSsid);
+        oled.print(F("pass: "));
+        oled.println(s_apPass.length() ? s_apPass : String("(open)"));
+        oled.println();
+        oled.println(F("then browse to"));
+        oled.println(s_apIp);
+        oled.display();
+        return;
+    }
+
     MinerStats st = miner_get_stats();
 
     double rate = st.hashrate;
@@ -100,6 +128,7 @@ void display_update() {
 
 void display_begin() {}
 void display_message(const String &, const String &) {}
+void display_setup_mode(const String &, const String &, const String &) {}
 void display_update() {}
 
 #endif

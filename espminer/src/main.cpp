@@ -31,6 +31,8 @@ static uint32_t  s_lastStats = 0;
 static uint32_t  s_lastDisplay = 0;
 static uint32_t  s_lastWifiCheck = 0;
 static bool      s_wifiWasUp = true;
+static bool      s_apUp = false;
+static uint32_t  s_lastApRetry = 0;
 
 // ---------------------------------------------------------------------
 static void banner() {
@@ -53,20 +55,67 @@ static void banner() {
 }
 
 // ---------------------------------------------------------------------
-static void startAccessPoint() {
+static bool startAccessPoint() {
     s_apMode = true;
-    WiFi.mode(WIFI_AP);
-    WiFi.softAP(AP_SSID, AP_PASSWORD);
-    dnsServer.start(53, "*", WiFi.softAPIP());
 
-    MLOG("setup mode: join wi-fi '%s' (password '%s')", AP_SSID, AP_PASSWORD);
-    MLOG("            then open http://%s", WiFi.softAPIP().toString().c_str());
-    display_message("Setup mode", WiFi.softAPIP().toString());
+    // WiFi.begin() keeps retrying in the background long after our connect
+    // loop gives up, and bringing an AP up underneath an in-flight station
+    // connect is the classic way to get a softAP() that silently does
+    // nothing. Tear the station side down properly first.
+    WiFi.disconnect(true, true);
+    delay(200);
+    WiFi.mode(WIFI_OFF);
+    delay(200);
+    WiFi.mode(WIFI_AP);
+    delay(200);
+
+    const char *pass = (strlen(AP_PASSWORD) >= 8) ? AP_PASSWORD : nullptr;
+    if (!pass && strlen(AP_PASSWORD) > 0)
+        MLOG("wifi: AP_PASSWORD is shorter than 8 characters - starting an open AP");
+
+    s_apUp = WiFi.softAP(AP_SSID, pass, AP_CHANNEL);
+    if (!s_apUp) {
+        // Some cores/boards refuse a protected AP but will start an open
+        // one. A reachable setup page beats an unreachable secure one.
+        MLOG("wifi: softAP('%s') failed, retrying without a password", AP_SSID);
+        delay(500);
+        s_apUp = WiFi.softAP(AP_SSID, nullptr, AP_CHANNEL);
+        if (s_apUp) pass = nullptr;
+    }
+
+    if (!s_apUp) {
+        MLOG("wifi: COULD NOT START THE SETUP AP - will keep retrying");
+        display_message("AP failed", "retrying...");
+        return false;
+    }
+
+    IPAddress ip = WiFi.softAPIP();
+    dnsServer.start(53, "*", ip);
+
+    Serial.println();
+    MLOG("=====================================================");
+    MLOG(" SETUP MODE - the miner needs your wi-fi details");
+    MLOG("   1. join the network  '%s'", AP_SSID);
+    MLOG("      password          '%s'", pass ? pass : "(none - open network)");
+    MLOG("   2. open              http://%s", ip.toString().c_str());
+    MLOG("   (channel %d, ap mac %s)", AP_CHANNEL, WiFi.softAPmacAddress().c_str());
+    MLOG("=====================================================");
+    Serial.println();
+
+    display_setup_mode(AP_SSID, pass ? pass : "", ip.toString());
+    display_update();
+    return true;
 }
 
 static bool connectWifi() {
     MinerSettings &c = settings();
-    if (c.wifiSsid.length() == 0) return false;
+
+    // Nothing configured yet? Don't burn 25 seconds failing to join a
+    // placeholder - go straight to the setup network.
+    if (c.wifiSsid.length() == 0 || c.wifiSsid == "YOUR_WIFI_NAME") {
+        MLOG("wifi: no network configured yet");
+        return false;
+    }
 
     WiFi.persistent(false);
     WiFi.mode(WIFI_STA);
@@ -79,6 +128,13 @@ static bool connectWifi() {
 
     uint32_t deadline = millis() + WIFI_CONNECT_TIMEOUT * 1000UL;
     while (WiFi.status() != WL_CONNECTED && millis() < deadline) {
+#if AP_FORCE_PIN >= 0
+        if (digitalRead(AP_FORCE_PIN) == LOW) {
+            Serial.println();
+            MLOG("wifi: BOOT button held - forcing setup mode");
+            return false;
+        }
+#endif
         delay(250);
         Serial.print('.');
     }
@@ -96,6 +152,17 @@ static bool connectWifi() {
 
 // ---------------------------------------------------------------------
 static void printStats() {
+    if (s_apMode) {
+        if (s_apUp)
+            MLOG("setup mode: join '%s', then open http://%s  (%u client%s connected)",
+                 AP_SSID, WiFi.softAPIP().toString().c_str(),
+                 (unsigned)WiFi.softAPgetStationNum(),
+                 WiFi.softAPgetStationNum() == 1 ? "" : "s");
+        else
+            MLOG("setup mode: the access point is NOT running - retrying");
+        return;
+    }
+
     MinerStats st = miner_get_stats();
     double rate = st.hashrate;
     const char *unit = "H/s";
@@ -115,6 +182,9 @@ void setup() {
     settings_load();
     banner();
     display_begin();
+#if AP_FORCE_PIN >= 0
+    pinMode(AP_FORCE_PIN, INPUT_PULLUP);
+#endif
 
     if (!connectWifi()) startAccessPoint();
 
@@ -148,6 +218,10 @@ void setup() {
 // ---------------------------------------------------------------------
 void loop() {
     if (s_apMode) {
+        if (!s_apUp && millis() - s_lastApRetry > 10000) {
+            s_lastApRetry = millis();
+            startAccessPoint();
+        }
         dnsServer.processNextRequest();
     } else {
         // Wi-Fi dropped? Let the ESP32 reconnect, and park the miner meanwhile.

@@ -318,6 +318,22 @@ rejected means something is wrong; open an issue with the serial log.
 **Wi-Fi won't connect** — 2.4 GHz only, and the ESP32 dislikes some WPA3-only
 networks. Try a WPA2 or mixed-mode SSID.
 
+**The ESPMiner-Setup network never appears** — watch the serial console at
+boot. It prints a banner with the network name, password and address when
+the AP is up, or `COULD NOT START THE SETUP AP` when it is not (it then
+retries every 10 seconds, and falls back to an open network if a protected
+one is refused). With an OLED attached, setup mode takes over the screen
+and shows the same details.
+
+If the miner already has working Wi-Fi saved, it joins that instead and
+never starts the AP — that is deliberate. The dashboard is then on your LAN,
+at the address shown on the screen and in the serial log, or at
+`http://espminer.local`. To get the setup network anyway, **press and hold
+the BOOT button while the connect dots are scrolling** on the serial
+console. (Holding BOOT during reset does something else entirely — it puts
+the chip in flashing mode.) `Settings → Factory reset` also clears the saved
+Wi-Fi.
+
 **Reboot loops / brownouts** — feed it from a decent USB supply. Both cores
 hashing flat out draws more than some laptop ports like to give.
 

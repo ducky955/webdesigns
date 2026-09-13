@@ -5,4 +5,8 @@
 
 void display_begin();
 void display_message(const String &line1, const String &line2);
+
+// Show the setup network instead of mining stats until the miner is
+// configured. Passing an empty ssid returns the screen to the miner.
+void display_setup_mode(const String &ssid, const String &password, const String &ip);
 void display_update();

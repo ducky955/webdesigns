@@ -80,7 +80,18 @@
 //    a phone. Password must be >= 8 characters.
 // ---------------------------------------------------------------------
 #define AP_SSID             "ESPMiner-Setup"
+// Must be at least 8 characters, or the ESP32 refuses to start the AP.
+// Set to "" for an open network with no password.
 #define AP_PASSWORD         "bitcoin123"
+// 2.4 GHz channel for the setup network. 1, 6 or 11 are the sane choices.
+#define AP_CHANNEL          1
+
+// Hold this pin low during the Wi-Fi connect to force setup mode, even if
+// the configured network is working. On almost every dev board it is the
+// BOOT button. Press it while the dots are scrolling on the serial console
+// (not during reset - that puts the chip into flashing mode). Set to -1
+// to disable.
+#define AP_FORCE_PIN        0
 
 // Hostname for mDNS + DHCP -> http://espminer.local
 #define MINER_HOSTNAME      "espminer"
