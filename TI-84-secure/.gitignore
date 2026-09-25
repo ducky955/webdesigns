@@ -1,0 +1,3 @@
+obj/
+bin/*
+!bin/CESECURE.8xp
