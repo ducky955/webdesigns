@@ -1,10 +1,10 @@
 #include "pin.h"
+#include "storage.h"
 #include "ui.h"
 
 #include <stdint.h>
 #include <string.h>
 
-#include <fileioc.h>
 #include <graphx.h>
 #include <sys/rtc.h>
 #include <sys/timers.h>
@@ -32,8 +32,6 @@ typedef struct {
 
 _Static_assert(sizeof(pin_record_t) == 16, "pin_record_t must be packed");
 
-enum { SAVE_OK, SAVE_RAM_ONLY, SAVE_FAILED };
-
 static uint32_t fnv1a(uint32_t h, const uint8_t *data, uint8_t len)
 {
     while (len--)
@@ -60,47 +58,8 @@ static uint32_t pin_hash(const uint8_t salt[SALT_LEN], const char *pin, uint8_t 
 
 static bool pin_load(pin_record_t *rec)
 {
-    uint8_t handle = ti_Open(PIN_APPVAR, "r");
-    bool ok;
-
-    if (!handle)
-    {
-        return false;
-    }
-    ok = ti_GetSize(handle) == sizeof *rec &&
-         ti_Read(rec, sizeof *rec, 1, handle) == 1 &&
-         memcmp(rec->magic, PIN_MAGIC, sizeof rec->magic) == 0;
-    ti_Close(handle);
-
-    return ok;
-}
-
-static uint8_t pin_save(const pin_record_t *rec)
-{
-    uint8_t handle;
-    int archived;
-
-    handle = ti_Open(PIN_APPVAR, "w");
-    if (!handle)
-    {
-        return SAVE_FAILED;
-    }
-    if (ti_Write(rec, sizeof *rec, 1, handle) != 1)
-    {
-        ti_Close(handle);
-        ti_Delete(PIN_APPVAR);
-        return SAVE_FAILED;
-    }
-
-    /* Archiving can trigger a garbage collect, which draws an OS screen, so
-     * drop out of graphx around it. Restore the default handlers afterwards
-     * so nothing points at this program once another one runs. */
-    ti_SetGCBehavior(ui_end, ui_init);
-    archived = ti_SetArchiveStatus(true, handle);
-    ti_SetGCBehavior(NULL, NULL);
-    ti_Close(handle);
-
-    return archived ? SAVE_OK : SAVE_RAM_ONLY;
+    return store_read(PIN_APPVAR, rec, sizeof *rec) &&
+           memcmp(rec->magic, PIN_MAGIC, sizeof rec->magic) == 0;
 }
 
 bool pin_is_set(void)
@@ -155,17 +114,15 @@ static uint8_t pin_entry(const char *context, const char *title, const char *sub
                          const char *msg, uint8_t msg_color, const char *cancel_label,
                          char pin[PIN_MAX + 1])
 {
-    char hints[40];
+    const char *const chips[] = { "del", "Erase", "enter", "OK", "clear", cancel_label, NULL };
     uint8_t len = 0;
-
-    ui_append(ui_append(hints, "del:erase  enter:OK  clear:"), cancel_label);
 
     for (;;)
     {
         uint8_t key;
         int8_t digit;
 
-        ui_frame(context, hints);
+        ui_frame(context, chips);
         ui_draw_lock(SCREEN_W / 2, 36, COL_ACCENT);
         ui_text_centered(title, 100, COL_TEXT, 2);
         if (subtitle)
@@ -179,7 +136,7 @@ static uint8_t pin_entry(const char *context, const char *title, const char *sub
         }
         gfx_SwapDraw();
 
-        key = ui_wait_key();
+        key = ui_poll_key();
         digit = key_to_digit(key);
 
         if (digit >= 0)
@@ -222,7 +179,7 @@ static void lockout(const char *context)
 
     for (uint8_t left = LOCKOUT_SECONDS; left > 0; left--)
     {
-        ui_frame(context, "locked");
+        ui_frame(context, NULL);
         ui_draw_lock(SCREEN_W / 2, 36, COL_ERR);
         ui_text_centered("Locked", 100, COL_ERR, 2);
         ui_text_centered("Too many wrong PINs", 128, COL_TEXT, 1);
@@ -333,15 +290,15 @@ bool pin_setup(const char *context, const char *cancel_label)
     memset(first, 0, sizeof first);
     memset(second, 0, sizeof second);
 
-    status = pin_save(&rec);
-    if (status == SAVE_FAILED)
+    status = store_write(PIN_APPVAR, &rec, sizeof rec);
+    if (status == STORE_FAILED)
     {
         ui_message(context, "Error", COL_ERR, "Could not save the PIN.", "Free some RAM and try again.");
         return false;
     }
-    if (status == SAVE_RAM_ONLY)
+    if (status == STORE_RAM_ONLY)
     {
-        ui_message(context, "PIN saved", COL_ASM, "Archive is full, so the PIN is in RAM.",
+        ui_message(context, "PIN saved", COL_WARN, "Archive is full, so the PIN is in RAM.",
                    "A RAM reset will remove it.");
     }
     else
@@ -353,9 +310,9 @@ bool pin_setup(const char *context, const char *cancel_label)
 
 void pin_change(void)
 {
-    if (!pin_unlock("Change PIN", "back"))
+    if (!pin_unlock("Change PIN", "Back"))
     {
         return;
     }
-    pin_setup("Change PIN", "back");
+    pin_setup("Change PIN", "Back");
 }

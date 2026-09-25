@@ -5,6 +5,7 @@
  * the program list. See README.md for what this does and does not protect.
  */
 
+#include "config.h"
 #include "launcher.h"
 #include "pin.h"
 #include "ui.h"
@@ -15,20 +16,22 @@ int main(void)
 {
     bool unlocked;
 
+    config_load();
     ui_init();
 
     if (pin_is_set())
     {
-        unlocked = pin_unlock("Unlock", "quit");
+        unlocked = pin_unlock("Unlock", "Quit");
     }
     else
     {
-        unlocked = pin_setup("First run", "quit");
+        unlocked = pin_setup("First run", "Quit");
     }
 
     if (unlocked)
     {
         launcher_run(NULL);
+        config_save();
     }
 
     ui_quit();
