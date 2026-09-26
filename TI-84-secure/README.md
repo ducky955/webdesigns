@@ -55,13 +55,13 @@ and settings.
 > wrong, a RAM reset is the likely worst case, but please report it.
 
 1. Do steps 1 and 2 above (jailbreak, `clibs.8xg`).
-2. Send **`bin/CESINST.8xp`** and **`bin/CESecA.0.8xv`** to the calculator
-   with TI Connect CE.
+2. Send **`bin/CESINST.8xp`** to the calculator with TI Connect CE. It's the
+   only file you need: the app is stored inside it.
 3. Run `CESINST` the same way you run other assembly programs. It shows
    "Installing: CESecure" and "Do not reset!" while it writes the app. Don't
    remove the batteries or press reset during this.
 4. When it says **Successfully installed**, it asks whether to delete the
-   installer files. Say yes to free up the space.
+   installer. Say yes to free up the space.
 5. Press `apps` and choose **CESecure**.
 
 **Updating:** the installer won't overwrite an existing app. Delete the old
@@ -168,7 +168,7 @@ To build the app and its installer:
 
 ```sh
 make -f app.mk            # builds bin/CESecure.8ek
-make -f app.mk installer  # also builds bin/CESINST.8xp and bin/CESecA.0.8xv
+make -f app.mk installer  # also builds bin/CESINST.8xp with the app inside
 ```
 
 `CESecure.8ek` can be loaded directly into the CEmu emulator for testing.

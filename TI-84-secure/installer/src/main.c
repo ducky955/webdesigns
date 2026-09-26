@@ -31,6 +31,11 @@ struct appvar
 };
 
 static struct appvar appvars[MAX_APPVARS];
+
+#ifdef EMBEDDED_APP
+extern const uint8_t app_payload[];
+extern const uint8_t app_payload_end[];
+#endif
 static char app_name[10];
 
 static bool check_variable_overlaps(const uint8_t *app_start)
@@ -109,6 +114,20 @@ static int install(void)
     }
 
     struct appvar *appvar = &appvars[0];
+#ifdef EMBEDDED_APP
+    /* CESecure: the app is stored inside this program, so there are no
+     * AppVars to find (or to forget to send). */
+    appvar->data = (uint8_t *)app_payload;
+    appvar->size = (uint24_t)(app_payload_end - app_payload);
+    appvar->app_offset = 0;
+    app_size = appvar->size;
+
+    strncpy(app_name, (const char *)(appvar->data + 256 + 3), sizeof app_name - 1);
+    if (os_FindAppStart(app_name))
+    {
+        return ALREADY_INSTALLED;
+    }
+#else
     for (uint8_t i = 0; i < MAX_APPVARS; ++i)
     {
         char name[10];
@@ -157,6 +176,8 @@ static int install(void)
             return MISSING_VAR;
         }
     }
+
+#endif
 
     /* size at end of application stored in flash */
     appvar->size += sizeof(uint24_t);
@@ -239,6 +260,7 @@ static int install(void)
     return SUCCESS;
 }
 
+#ifndef EMBEDDED_APP
 void delete_vars(void)
 {
     for (uint8_t i = 0; i < MAX_APPVARS; ++i)
@@ -257,6 +279,7 @@ void delete_vars(void)
         }
     }
 }
+#endif
 
 int main(int argc, char **argv)
 {
@@ -283,7 +306,9 @@ int main(int argc, char **argv)
             if (confirm_delete_vars())
             {
                 delete_var(argv[0], OS_TYPE_PROT_PRGM);
+#ifndef EMBEDDED_APP
                 delete_vars();
+#endif
             }
             return SUCCESS;
             break;

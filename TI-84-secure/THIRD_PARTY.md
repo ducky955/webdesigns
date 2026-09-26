@@ -37,8 +37,9 @@ Cesium's `execute.asm` (https://github.com/mateoconlechuga/cesium).
 
 The installer is commandblockguy's App Tools
 (https://github.com/commandblockguy/app_tools, commit 0fb268f), copied as
-its readme allows. The only change is in `installer/makefile`: the program
-is named `CESINST` and reads AppVars named `CESecA0`, `CESecA1`, ...
+its readme allows. Changes for CESecure: the program is named `CESINST`,
+and it installs an app image embedded in the program (`src/payload.S`,
+`EMBEDDED_APP` in `src/main.c`) instead of reading it from AppVars.
 
 ## CE C toolchain
 
