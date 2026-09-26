@@ -54,12 +54,15 @@ typedef struct {
     uint16_t desc_off;        /* offset of description string, 0 if none */
 } program_t;
 
-static program_t programs[MAX_PROGRAMS];
+/* The program list and icon cache live on the heap, not in .bss. The app
+ * build's header counts .data + .bss as data the OS copies into its ~4 KB
+ * app RAM area at launch, and more than that crashes the calculator. */
+static program_t *programs;
 static uint16_t program_count;
 
 /* Icons for the visible rows. Consecutive indices map to distinct slots,
  * so a window of VISIBLE_ROWS programs never evicts itself. */
-static uint8_t icon_data[VISIBLE_ROWS][2 + 16 * 16];
+static uint8_t (*icon_data)[2 + 16 * 16];
 static uint16_t icon_owner[VISIBLE_ROWS];  /* program index + 1, 0 = empty */
 
 static char desc[DESC_MAX + 1];
@@ -184,6 +187,15 @@ static void load_programs(void)
     uint8_t type;
 
     program_count = 0;
+    if (!programs)
+    {
+        programs = malloc(MAX_PROGRAMS * sizeof *programs);
+        icon_data = malloc(VISIBLE_ROWS * sizeof *icon_data);
+    }
+    if (!programs || !icon_data)
+    {
+        return;
+    }
     while ((name = ti_DetectAny(&pos, NULL, &type)) != NULL)
     {
         program_t *prgm;
