@@ -28,7 +28,7 @@ static const char *const about[OPT_COUNT] = {
     "Color scheme for every screen. Changes show up right away.",
     "How the clock in the top bar shows the time.",
     "Order of the program list. Favorites always stay on top.",
-    "Show programs that are hidden from the TI-OS prgm menu.",
+    "Show programs hidden from the TI-OS prgm menu. Hide one with [alpha].",
     "Asks for your current PIN, then a new one.",
 };
 

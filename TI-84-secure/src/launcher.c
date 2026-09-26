@@ -2,6 +2,7 @@
 #include "config.h"
 #include "settings.h"
 #include "ui.h"
+#include "vat.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -72,12 +73,6 @@ static void invalidate_caches(void)
 {
     memset(icon_owner, 0, sizeof icon_owner);
     desc_owner = 0;
-}
-
-/* Hidden programs have their first letter lowered by 64. */
-static bool is_hidden_name(const char *name)
-{
-    return name[0] >= 'A' - 64 && name[0] <= '[' - 64;
 }
 
 /* Reads the kind, size and where the icon/description live. Compiled
@@ -207,7 +202,7 @@ static void load_programs(void)
             continue;
         }
         /* Names below 'A' are system programs, except hidden ones. */
-        hidden = is_hidden_name(name);
+        hidden = vat_is_hidden_name(name);
         if ((name[0] < 'A' && !hidden) || (hidden && !config.show_hidden))
         {
             continue;
@@ -228,14 +223,13 @@ static void load_programs(void)
 
         prgm = &programs[program_count++];
         memcpy(prgm->name, name, len + 1);
-        memcpy(prgm->display, name, len + 1);
+        vat_display_name(name, prgm->display);
         prgm->type = type;
         /* Compiled programs are always stored protected, so "locked" only
          * means something for TI-BASIC; read_metadata() clears it for them. */
         prgm->flags = type == OS_TYPE_PROT_PRGM ? FLAG_LOCKED : 0;
         if (hidden)
         {
-            prgm->display[0] += 64;
             prgm->flags |= FLAG_HIDDEN;
         }
     }
@@ -244,7 +238,8 @@ static void load_programs(void)
     for (uint16_t i = 0; i < program_count; i++)
     {
         read_metadata(&programs[i]);
-        if (config_is_favorite(programs[i].name))
+        /* Favorites use the visible name so hiding keeps them. */
+        if (config_is_favorite(programs[i].display))
         {
             programs[i].flags |= FLAG_FAV;
         }
@@ -253,11 +248,15 @@ static void load_programs(void)
     sort_programs();
 }
 
+/* Finds a program by name in either its hidden or visible spelling. */
 static uint16_t index_of(const char *name)
 {
+    char display[NAME_SIZE];
+
+    vat_display_name(name, display);
     for (uint16_t i = 0; i < program_count; i++)
     {
-        if (strcmp(programs[i].name, name) == 0)
+        if (strcmp(programs[i].display, display) == 0)
         {
             return i;
         }
@@ -444,8 +443,19 @@ static void draw_panel(uint16_t index)
     gfx_SetColor(COL_LINE);
     gfx_HorizLine_NoClip(PANEL_X + 8, LIST_Y + 116, PANEL_W - 16);
     ui_text_wrapped(description ? description : kind_blurbs[prgm->kind],
-                    PANEL_X + 8, LIST_Y + 122, PANEL_W - 16, 6,
+                    PANEL_X + 8, LIST_Y + 122, PANEL_W - 16, 5,
                     description ? COL_TEXT : COL_DIM);
+
+    /* [alpha] hint; the bottom bar has no room for a fifth key. */
+    {
+        const char *label = (prgm->flags & FLAG_HIDDEN) ? "Unhide" : "Hide";
+        int y = LIST_Y + PANEL_H - 16;
+        int key_w = (int)gfx_GetStringWidth("alpha") + 8;
+
+        ui_round_rect(PANEL_X + 8, y, key_w, 12, COL_LINE);
+        ui_text("alpha", PANEL_X + 12, y + 2, COL_TEXT);
+        ui_text(label, PANEL_X + 8 + key_w + 4, y + 2, COL_DIM);
+    }
 }
 
 static void draw_scrollbar(uint16_t top)
@@ -633,18 +643,83 @@ static int start_program(const program_t *prgm)
 
 static void run_program(const program_t *prgm)
 {
+    program_t current = *prgm;
+    vat_program_t found;
     char line[40];
-    int ret;
+    int ret = OS_RUN_PRGM_NOT_FOUND;
 
-    /* Everything in RAM is lost once the program starts. */
-    config_save();
-    ret = start_program(prgm);
+    /* Look the program up again by name so a rename since the list was
+     * loaded (such as hiding it) can't send a stale name to the OS. */
+    if (vat_find_program(prgm->name, &found))
+    {
+        memcpy(current.name, found.name, sizeof current.name);
+        current.type = found.type;
+
+        /* Everything in RAM is lost once the program starts. */
+        config_save();
+        ret = start_program(&current);
+    }
 
     /* Only reached if the program could not be started. */
     ui_init();
     ui_append(ui_append(line, "Could not run "), prgm->display);
     ui_message("Error", "Launch failed", COL_ERR, line,
                ret == OS_RUN_PRGM_ERR_MEMORY ? "Not enough free RAM." : "The program was not found.");
+}
+
+/* [alpha]: hides or unhides the selected program from the TI-OS prgm menu.
+ * Returns the program's new index in the reloaded list. */
+static uint16_t toggle_hidden(uint16_t sel)
+{
+    const program_t *prgm = &programs[sel];
+    bool hide = !(prgm->flags & FLAG_HIDDEN);
+    bool turned_on_show = false;
+    char display[NAME_SIZE];
+    uint8_t result;
+
+    strcpy(display, prgm->display);
+
+    ui_frame(hide ? "Hide" : "Unhide", NULL);
+    ui_text_centered(hide ? "Hiding..." : "Unhiding...", 104, COL_TEXT, 2);
+    ui_text_centered(display, 128, COL_DIM, 1);
+    gfx_SwapDraw();
+
+    result = vat_set_hidden(prgm->name, hide);
+    if (result == VAT_OK && hide && !config.show_hidden)
+    {
+        /* Otherwise the program would vanish from CESecure too. */
+        config.show_hidden = 1;
+        config_mark_dirty();
+        turned_on_show = true;
+    }
+
+    load_programs();
+
+    switch (result)
+    {
+        case VAT_OK:
+            if (turned_on_show)
+            {
+                ui_message("Hidden", display, COL_OK,
+                           "Hidden from the prgm menu.",
+                           "Settings now show hidden programs.");
+            }
+            break;
+        case VAT_NO_MEMORY:
+            ui_message("Error", "Not enough RAM", COL_ERR,
+                       "Renaming needs free RAM the size", "of the program. Free some RAM.");
+            break;
+        case VAT_NAME_TAKEN:
+            ui_message("Error", "Name in use", COL_ERR,
+                       "Another program already has", "that name.");
+            break;
+        default:
+            ui_message("Error", "Couldn't change it", COL_ERR, display,
+                       result == VAT_NOT_FOUND ? "The program was not found." : "The OS refused the rename.");
+            break;
+    }
+
+    return index_of(display);
 }
 
 void launcher_run(const char *reselect)
@@ -700,10 +775,16 @@ void launcher_run(const char *reselect)
                     run_program(&programs[sel]);
                 }
                 break;
+            case sk_Alpha:
+                if (program_count)
+                {
+                    sel = toggle_hidden(sel);
+                }
+                break;
             case sk_Yequ:
                 if (program_count)
                 {
-                    strcpy(keep, programs[sel].name);
+                    strcpy(keep, programs[sel].display);
                     if (config_toggle_favorite(keep))
                     {
                         programs[sel].flags ^= FLAG_FAV;
@@ -721,7 +802,7 @@ void launcher_run(const char *reselect)
                 keep[0] = '\0';
                 if (program_count)
                 {
-                    strcpy(keep, programs[sel].name);
+                    strcpy(keep, programs[sel].display);
                 }
                 settings_run();
                 load_programs();
