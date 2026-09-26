@@ -33,6 +33,9 @@ struct appvar
 static struct appvar appvars[MAX_APPVARS];
 
 #ifdef EMBEDDED_APP
+/* Shown on every screen so it's clear which installer is running. */
+#define INSTALLER_BANNER "CESecure installer v2"
+
 extern const uint8_t app_payload[];
 extern const uint8_t app_payload_end[];
 #endif
@@ -289,9 +292,20 @@ int main(int argc, char **argv)
 
     os_ClrHome();
 
+#ifdef EMBEDDED_APP
+    os_PutStrFull(INSTALLER_BANNER);
+    os_NewLine();
+    os_NewLine();
+#endif
+
     error = install();
 
     os_ClrHome();
+#ifdef EMBEDDED_APP
+    os_PutStrFull(INSTALLER_BANNER);
+    os_NewLine();
+    os_NewLine();
+#endif
 
     switch (error)
     {

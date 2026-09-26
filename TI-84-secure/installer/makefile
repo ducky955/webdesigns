@@ -2,7 +2,7 @@
 # Makefile Options
 # ----------------------------
 
-NAME = CESINST
+NAME = CESINST2
 COMPRESSED = NO
 ARCHIVED = NO
 LTO = NO
