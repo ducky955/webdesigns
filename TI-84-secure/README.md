@@ -16,6 +16,8 @@ with their icons and descriptions, ready to run with one key.
 - **Info panel.** Type (C, ICE, ASM, BASIC), size, archive or RAM, and whether
   a program is locked or hidden.
 - **Favorites.** Press `y=` to pin a program to the top of the list (up to 16).
+- **Hide programs.** Press `alpha` to hide a program from the TI-OS `prgm`
+  menu, or unhide it. Hidden programs still show (and run) in CESecure.
 - **Letter jump.** Press any key with a green letter above it to jump to the
   next program starting with that letter, like in Cesium.
 - **7 color themes:** Midnight, Ocean, Forest, Ember, Synthwave, Graphite, and
@@ -99,6 +101,7 @@ Three wrong PINs in a row lock the screen for 30 seconds.
 | `left` / `right`    | Page up / page down                         |
 | `enter` / `2nd`     | Run the highlighted program                 |
 | `y=`                | Add or remove a favorite                    |
+| `alpha`             | Hide or unhide it in the TI-OS `prgm` menu  |
 | green letter keys   | Jump to the next program with that letter   |
 | `mode`              | Settings                                    |
 | `clear`             | Quit                                        |
@@ -116,6 +119,22 @@ aren't asked for the PIN again, because you already unlocked this session.
 | `clear` / `mode`    | Back to the list (saves your changes)       |
 
 **Change PIN** asks for your current PIN first.
+
+## How hiding works
+
+TI-OS marks a program as hidden by clearing bit 6 (`0x40`) of the first
+letter of its name in the VAT, so `GAME` is stored as `0x07` `AME`. All
+valid first letters (`A`–`Z`, `θ`) have that bit set, so hiding clears it
+and unhiding sets it again. CESecure always shows the normal name.
+
+To change the bit, CESecure renames the program with fileioc's
+`ti_RenameVar`. That updates both the VAT entry and, for archived programs,
+the copy of the name in flash, so the change survives a RAM reset. Archived
+programs stay archived. Renaming needs free RAM at least as large as the
+program.
+
+If you hide a program while **Settings → Hidden programs** is off, CESecure
+turns it on so the program doesn't disappear from your list too.
 
 ## How the PIN is stored
 
@@ -138,7 +157,8 @@ CESecure only controls what happens **inside CESecure**. It does not lock the
 calculator. In particular:
 
 - **Programs can still be run from the `prgm` menu** or any other shell,
-  without the PIN.
+  without the PIN. Hiding a program with `alpha` takes it out of the `prgm`
+  menu, but it can still be run by typing its name or from another shell.
 - **Deleting the `CESecPW` AppVar removes the PIN** (`2nd` `mem` → Mem
   Management → AppVars). The next launch treats it as a first run.
 - **Resetting the calculator** (archive or full reset) also removes it.
@@ -197,6 +217,7 @@ THIRD_PARTY.md     credits and licenses for Cesium and App Tools
 src/main.c         entry point: first-run setup or unlock, then the launcher
 src/pin.c/.h       PIN entry, hashing, lockout, change PIN
 src/launcher.c/.h  program list, icons, info panel, favorites, running programs
+src/vat.c/.h       VAT lookups by name (hidden or not), hide/unhide
 src/settings.c/.h  settings menu
 src/config.c/.h    settings and favorites (CESecCfg AppVar)
 src/storage.c/.h   AppVar write + archive helper
