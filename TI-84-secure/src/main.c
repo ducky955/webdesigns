@@ -19,6 +19,21 @@ int main(void)
     config_load();
     ui_init();
 
+#ifdef CESECURE_APP
+    {
+        /* Back from a program launched by this unlocked session. */
+        char resume[9];
+
+        if (launcher_take_resume(resume))
+        {
+            launcher_run(resume);
+            config_save();
+            ui_quit();
+            return 0;
+        }
+    }
+#endif
+
     if (pin_is_set())
     {
         unlocked = pin_unlock("Unlock", "Quit");

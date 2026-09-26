@@ -538,6 +538,61 @@ static uint16_t jump_to_letter(uint16_t sel, char letter)
     return sel;
 }
 
+#ifdef CESECURE_APP
+
+/* In the app build a launched program ends by restarting the whole app
+ * (see app_run.S). This AppVar tells the restarted app which program just
+ * ran, so it can skip the PIN and put the cursor back on it. */
+#define RESUME_APPVAR "CESecRun"
+
+int app_run_asm(const char name[NAME_SIZE]);
+int app_run_basic(const char name[NAME_SIZE]);
+
+bool launcher_take_resume(char name[NAME_SIZE])
+{
+    uint8_t handle = ti_Open(RESUME_APPVAR, "r");
+    bool ok;
+
+    if (!handle)
+    {
+        return false;
+    }
+    memset(name, 0, NAME_SIZE);
+    ok = ti_GetSize(handle) == NAME_SIZE - 1 && ti_Read(name, NAME_SIZE - 1, 1, handle) == 1;
+    ti_Close(handle);
+    ti_Delete(RESUME_APPVAR);
+
+    return ok && name[0];
+}
+
+static int start_program(const program_t *prgm)
+{
+    char name[NAME_SIZE];
+    uint8_t handle;
+    int ret;
+
+    /* Zero-padded, as the OS expects in OP1. */
+    memset(name, 0, sizeof name);
+    memcpy(name, prgm->name, strlen(prgm->name));
+
+    handle = ti_Open(RESUME_APPVAR, "w");
+    if (handle)
+    {
+        ti_Write(name, NAME_SIZE - 1, 1, handle);
+        ti_Close(handle);
+    }
+
+    ui_end();
+    os_ClrHomeFull();
+    ret = prgm->kind == KIND_BASIC ? app_run_basic(name) : app_run_asm(name);
+
+    /* Only reached if the program could not be started. */
+    ti_Delete(RESUME_APPVAR);
+    return ret;
+}
+
+#else
+
 /* Entry point after a launched program exits. Only reachable from an
  * unlocked session, so the PIN is not asked again. */
 static int after_program(void *data, int retval)
@@ -553,6 +608,17 @@ static int after_program(void *data, int retval)
     return 0;
 }
 
+static int start_program(const program_t *prgm)
+{
+    ui_end();
+    os_ClrHomeFull();
+
+    /* The name is copied as callback data so the cursor can return to it. */
+    return os_RunPrgm(prgm->name, (void *)prgm->name, strlen(prgm->name) + 1, after_program);
+}
+
+#endif
+
 static void run_program(const program_t *prgm)
 {
     char line[40];
@@ -560,11 +626,7 @@ static void run_program(const program_t *prgm)
 
     /* Everything in RAM is lost once the program starts. */
     config_save();
-    ui_end();
-    os_ClrHomeFull();
-
-    /* The name is copied as callback data so the cursor can return to it. */
-    ret = os_RunPrgm(prgm->name, (void *)prgm->name, strlen(prgm->name) + 1, after_program);
+    ret = start_program(prgm);
 
     /* Only reached if the program could not be started. */
     ui_init();
